@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flappy Time Travel - فلابي عبر الزمن</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Amiri', serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            overflow: hidden;
+            user-select: none;
+        }
+        
+        #gameContainer {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(to bottom, #87CEEB 0%, #98FB98 100%);
+            transition: all 0.5s ease;
+        }
+        
+        #gameCanvas {
+            display: block;
+            border: none;
+            background: transparent;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+        
+        #score {
+            position: absolute;
+            top: 30px;
+            left: 30px;
+            font-size: 36px;
+            font-weight: bold;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+        
+        #timeEra {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            font-size: 24px;
+            font-weight: bold;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+            padding: 10px 20px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 20px;
+        }
+        
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: white;
+            font-size: 48px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            display: none;
+        }
+        
+        #startMessage {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: white;
+            font-size: 32px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        #powerUps {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            display: flex;
+            gap: 10px;
+        }
+        
+        .powerup {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            background: rgba(255,255,255,0.9);
+            border: 3px solid #FFD700;
+            opacity: 0.5;
+            transition: opacity 0.3s;
+        }
+        
+        .powerup.active {
+            opacity: 1;
+            animation: glow 1s infinite alternate;
+        }
+        
+        @keyframes glow {
+            from { box-shadow: 0 0 10px #FFD700; }
+            to { box-shadow: 0 0 20px #FFD700; }
+        }
+        
+        #soundToggle {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.9);
+            border: 3px solid #FFD700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            cursor: pointer;
+            pointer-events: auto;
+            transition: all 0.3s;
+        }
+        
+        #soundToggle:hover {
+            transform: scale(1.1);
+        }
+        
+        #soundToggle.muted {
+            opacity: 0.5;
+        }
+        
+        /* Era-specific backgrounds */
+        .stone-age { background: linear-gradient(to bottom, #8B4513 0%, #DEB887 100%); }
+        .medieval { background: linear-gradient(to bottom, #2F4F4F 0%, #696969 100%); }
+        .future { background: linear-gradient(to bottom, #191970 0%, #4B0082 100%); }
+        .hell { background: linear-gradient(to bottom, #8B0000 0%, #FF4500 100%); }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        <div id="ui">
+            <div id="score">النقاط: 0</div>
+            <div id="timeEra">العصر الحجري 🦕</div>
+            <div id="startMessage">اضغط مسافة أو اللمس للبدء</div>
+            <div id="gameOver">
+                <div>انتهت اللعبة!</div>
+                <div style="font-size: 24px; margin-top: 20px;">اضغط مسافة للعب مرة أخرى</div>
+            </div>
+            <div id="powerUps">
+                <div class="powerup" id="shield">🛡️</div>
+                <div class="powerup" id="magnet">🧲</div>
+                <div class="powerup" id="slowTime">🐢</div>
+            </div>
+            <div id="soundToggle">🔊</div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const gameContainer = document.getElementById('gameContainer');
+        const soundToggle = document.getElementById('soundToggle');
+        
+        // Canvas setup
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        
+        // Audio setup
+        let audioContext = null;
+        let isSoundEnabled = true;
+        
+        // Initialize audio context
+        function initAudio() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+        
+        // Sound generation functions
+        function playSound(type, frequency = 440, duration = 0.1, volume = 0.3) {
+            if (!isSoundEnabled || !audioContext) return;
+            
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.type = type;
+            oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+            
+            gainNode.gain.setValueAtTime(volume, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + duration);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + duration);
+        }
+        
+        function playJumpSound() {
+            playSound('sine', 400, 0.1, 0.2);
+        }
+        
+        function playScoreSound() {
+            playSound('triangle', 600, 0.2, 0.3);
+            setTimeout(() => playSound('triangle', 800, 0.1, 0.2), 100);
+        }
+        
+        function playPowerUpSound() {
+            playSound('sawtooth', 300, 0.1, 0.25);
+            setTimeout(() => playSound('sawtooth', 500, 0.1, 0.25), 50);
+            setTimeout(() => playSound('sawtooth', 700, 0.1, 0.25), 100);
+        }
+        
+        function playEraChangeSound() {
+            playSound('square', 200, 0.3, 0.3);
+            setTimeout(() => playSound('square', 400, 0.2, 0.25), 150);
+            setTimeout(() => playSound('square', 600, 0.1, 0.2), 250);
+        }
+        
+        function playGameOverSound() {
+            playSound('sawtooth', 300, 0.5, 0.4);
+            setTimeout(() => playSound('sawtooth', 250, 0.3, 0.3), 200);
+            setTimeout(() => playSound('sawtooth', 200, 0.4, 0.35), 400);
+        }
+        
+        function playShieldSound() {
+            playSound('triangle', 800, 0.2, 0.3);
+        }
+        
+        function playBounceSound() {
+            playSound('sine', 300, 0.1, 0.2);
+        }
+        
+        // Complex sound effects
+        function playMagnetSound() {
+            // Metallic sound effect
+            for (let i = 0; i < 5; i++) {
+                setTimeout(() => {
+                    playSound('square', 400 + i * 100, 0.05, 0.15);
+                }, i * 20);
+            }
+        }
+        
+        function playSlowTimeSound() {
+            // Slow motion effect
+            const frequencies = [600, 500, 400, 300, 200];
+            frequencies.forEach((freq, i) => {
+                setTimeout(() => {
+                    playSound('sine', freq, 0.2, 0.2);
+                }, i * 100);
+            });
+        }
+        
+        // Background ambient sounds for each era
+        function playEraAmbient(era) {
+            if (!isSoundEnabled || !audioContext) return;
+            
+            switch (era) {
+                case 0: // Stone Age
+                    // Nature sounds simulation
+                    if (Math.random() < 0.1) {
+                        playSound('sine', 100 + Math.random() * 50, 0.5, 0.1);
+                    }
+                    break;
+                case 1: // Medieval
+                    // Wind sounds
+                    if (Math.random() < 0.05) {
+                        playSound('sawtooth', 80 + Math.random() * 40, 1, 0.05);
+                    }
+                    break;
+                case 2: // Future
+                    // Electronic beeps
+                    if (Math.random() < 0.08) {
+                        playSound('square', 800 + Math.random() * 200, 0.1, 0.1);
+                    }
+                    break;
+                case 3: // Hell
+                    // Fire crackling simulation
+                    if (Math.random() < 0.15) {
+                        playSound('sawtooth', 50 + Math.random() * 100, 0.2, 0.08);
+                    }
+                    break;
+            }
+        }
+        
+        // Sound toggle functionality
+        soundToggle.addEventListener('click', () => {
+            isSoundEnabled = !isSoundEnabled;
+            soundToggle.textContent = isSoundEnabled ? '🔊' : '🔇';
+            soundToggle.classList.toggle('muted', !isSoundEnabled);
+            
+            if (isSoundEnabled) {
+                initAudio();
+                playSound('sine', 440, 0.1, 0.2); // Test sound
+            }
+        });
+        
+        // Game state
+        let gameState = 'waiting'; // waiting, playing, gameOver
+        let score = 0;
+        let frameCount = 0;
+        let lastTime = 0;
+        
+        // Time travel system
+        const eras = [
+            { name: 'العصر الحجري 🦕', bgClass: 'stone-age', birdChar: '🦕', pipeColor: '#8B4513' },
+            { name: 'العصر الوسيط ⚔️', bgClass: 'medieval', birdChar: '⚔️', pipeColor: '#2F4F4F' },
+            { name: 'المستقبل 🤖', bgClass: 'future', birdChar: '🤖', pipeColor: '#4B0082' },
+            { name: 'الجحيم 🔥', bgClass: 'hell', birdChar: '🔥', pipeColor: '#8B0000' }
+        ];
+        
+        let currentEra = 0;
+        let eraTimer = 0;
+        const eraChangeInterval = 1500; // 25 seconds for better gameplay
+        
+        // Bird object
+        const bird = {
+            x: canvas.width / 5,
+            y: canvas.height / 2,
+            velocity: 0,
+            size: 25,
+            gravity: 0.45,
+            jump: -7.5,
+            char: eras[currentEra].birdChar,
+            rotation: 0,
+            trail: [] // Add trail effect
+        };
+        
+        // Pipes array
+        const pipes = [];
+        const pipeWidth = 80;
+        const pipeGap = 220;
+        let pipeTimer = 0;
+        
+        // Power-ups
+        const powerUps = {
+            shield: { active: false, duration: 0 },
+            magnet: { active: false, duration: 0 },
+            slowTime: { active: false, duration: 0 }
+        };
+        
+        // Particles for effects
+        const particles = [];
+        
+        // Input handling
+        function handleInput() {
+            // Initialize audio on first interaction
+            if (!audioContext) {
+                initAudio();
+            }
+            
+            if (gameState === 'waiting') {
+                startGame();
+            } else if (gameState === 'playing') {
+                bird.velocity = bird.jump;
+                playJumpSound();
+                
+                // Random power-up activation (reduced frequency)
+                if (Math.random() < 0.05) {
+                    activateRandomPowerUp();
+                }
+            } else if (gameState === 'gameOver') {
+                resetGame();
+            }
+        }
+        
+        // Event listeners
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                handleInput();
+            }
+        });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            handleInput();
+        });
+        
+        canvas.addEventListener('click', handleInput);
+        
+        // Game functions
+        function startGame() {
+            gameState = 'playing';
+            document.getElementById('startMessage').style.display = 'none';
+            document.getElementById('gameOver').style.display = 'none';
+        }
+        
+        function resetGame() {
+            gameState = 'waiting';
+            score = 0;
+            frameCount = 0;
+            currentEra = 0;
+            eraTimer = 0;
+            bird.y = canvas.height / 2;
+            bird.velocity = 0;
+            bird.rotation = 0;
+            pipes.length = 0;
+            particles.length = 0;
+            
+            // Reset power-ups
+            Object.keys(powerUps).forEach(key => {
+                powerUps[key].active = false;
+                powerUps[key].duration = 0;
+            });
+            
+            updateUI();
+            changeEra();
+            document.getElementById('startMessage').style.display = 'block';
+            document.getElementById('gameOver').style.display = 'none';
+        }
+        
+        function activateRandomPowerUp() {
+            const powerUpKeys = Object.keys(powerUps);
+            const randomPowerUp = powerUpKeys[Math.floor(Math.random() * powerUpKeys.length)];
+            
+            if (!powerUps[randomPowerUp].active && Math.random() < 0.3) {
+                powerUps[randomPowerUp].active = true;
+                powerUps[randomPowerUp].duration = 180; // 3 seconds at 60fps
+                
+                // Play power-up specific sound
+                switch (randomPowerUp) {
+                    case 'shield':
+                        playShieldSound();
+                        break;
+                    case 'magnet':
+                        playMagnetSound();
+                        break;
+                    case 'slowTime':
+                        playSlowTimeSound();
+                        break;
+                }
+                
+                // Create particles
+                createParticles(bird.x, bird.y, '#FFD700');
+            }
+        }
+        
+        function createParticles(x, y, color) {
+            for (let i = 0; i < 10; i++) {
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: (Math.random() - 0.5) * 8,
+                    vy: (Math.random() - 0.5) * 8,
+                    life: 30,
+                    color: color
+                });
+            }
+        }
+        
+        function updateParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const particle = particles[i];
+                particle.x += particle.vx;
+                particle.y += particle.vy;
+                particle.life--;
+                
+                if (particle.life <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+        }
+        
+        function drawParticles() {
+            particles.forEach(particle => {
+                ctx.save();
+                ctx.globalAlpha = particle.life / 30;
+                ctx.fillStyle = particle.color;
+                ctx.beginPath();
+                ctx.arc(particle.x, particle.y, 3, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            });
+        }
+        
+        function changeEra() {
+            gameContainer.className = '';
+            gameContainer.classList.add(eras[currentEra].bgClass);
+            bird.char = eras[currentEra].birdChar;
+            
+            // Play era change sound
+            playEraChangeSound();
+            
+            // Create era change particles
+            createParticles(canvas.width / 2, canvas.height / 2, '#FFFFFF');
+            
+            updateUI();
+        }
+        
+        function updateUI() {
+            document.getElementById('score').textContent = `النقاط: ${score}`;
+            document.getElementById('timeEra').textContent = eras[currentEra].name;
+            
+            // Update power-up UI
+            Object.keys(powerUps).forEach(key => {
+                const element = document.getElementById(key);
+                if (powerUps[key].active) {
+                    element.classList.add('active');
+                } else {
+                    element.classList.remove('active');
+                }
+            });
+        }
+        
+        function updateBird() {
+            if (gameState !== 'playing') return;
+            
+            // Add trail effect
+            if (frameCount % 3 === 0) {
+                bird.trail.push({
+                    x: bird.x + bird.size/2,
+                    y: bird.y + bird.size/2,
+                    char: bird.char,
+                    size: bird.size * 0.7,
+                    alpha: 0.5,
+                    color: '#FFFFFF'
+                });
+                
+                // Limit trail length
+                if (bird.trail.length > 5) {
+                    bird.trail.shift();
+                }
+            }
+            
+            // Update trail
+            for (let i = bird.trail.length - 1; i >= 0; i--) {
+                bird.trail[i].alpha -= 0.1;
+                bird.trail[i].size *= 0.95;
+                if (bird.trail[i].alpha <= 0) {
+                    bird.trail.splice(i, 1);
+                }
+            }
+            
+            // Apply gravity (slower if slow time is active)
+            const gravityMultiplier = powerUps.slowTime.active ? 0.4 : 1;
+            bird.velocity += bird.gravity * gravityMultiplier;
+            bird.y += bird.velocity * gravityMultiplier;
+            
+            // Update rotation based on velocity
+            bird.rotation = Math.min(Math.max(bird.velocity * 3, -20), 90);
+            
+            // Check top boundary
+            if (bird.y <= 0) {
+                bird.y = 0;
+                bird.velocity = Math.abs(bird.velocity) * 0.3; // Bounce effect
+                playBounceSound();
+                if (!powerUps.shield.active) {
+                    gameOver();
+                } else {
+                    powerUps.shield.active = false;
+                    powerUps.shield.duration = 0;
+                    playShieldSound();
+                    createParticles(bird.x, bird.y, '#FFD700');
+                }
+            }
+            
+            // Check bottom boundary
+            if (bird.y >= canvas.height - bird.size) {
+                bird.y = canvas.height - bird.size;
+                bird.velocity = -Math.abs(bird.velocity) * 0.3; // Bounce effect
+                playBounceSound();
+                if (!powerUps.shield.active) {
+                    gameOver();
+                } else {
+                    powerUps.shield.active = false;
+                    powerUps.shield.duration = 0;
+                    playShieldSound();
+                    createParticles(bird.x, bird.y, '#FFD700');
+                }
+            }
+        }
+        
+        function updatePipes() {
+            if (gameState !== 'playing') return;
+            
+            // Add new pipes
+            pipeTimer++;
+            if (pipeTimer > 120) { // Every 2 seconds for better spacing
+                pipeTimer = 0;
+                const pipeHeight = Math.random() * (canvas.height - pipeGap - 200) + 100;
+                pipes.push({
+                    x: canvas.width,
+                    topHeight: pipeHeight,
+                    bottomY: pipeHeight + pipeGap,
+                    scored: false,
+                    moving: currentEra === 2 // Future era has moving pipes
+                });
+            }
+            
+            // Update pipes
+            for (let i = pipes.length - 1; i >= 0; i--) {
+                const pipe = pipes[i];
+                pipe.x -= 2.5; // Slightly slower pipe movement
+                
+                // Moving pipes in future era
+                if (pipe.moving) {
+                    pipe.topHeight += Math.sin(frameCount * 0.03) * 0.8;
+                }
+                
+                // More forgiving collision detection
+                const collisionMargin = 2;
+                if (bird.x + collisionMargin < pipe.x + pipeWidth &&
+                    bird.x + bird.size - collisionMargin > pipe.x &&
+                    (bird.y + collisionMargin < pipe.topHeight || 
+                     bird.y + bird.size - collisionMargin > pipe.bottomY)) {
+                    
+                    if (!powerUps.shield.active) {
+                        gameOver();
+                    } else {
+                        // Shield absorbs the hit
+                        powerUps.shield.active = false;
+                        powerUps.shield.duration = 0;
+                        playShieldSound();
+                        createParticles(bird.x, bird.y, '#FFD700');
+                    }
+                }
+                
+                // Score
+                if (!pipe.scored && bird.x > pipe.x + pipeWidth) {
+                    pipe.scored = true;
+                    score++;
+                    
+                    // Magnet power-up gives bonus points
+                    if (powerUps.magnet.active) {
+                        score += 2;
+                    }
+                    
+                    playScoreSound();
+                    createParticles(bird.x, bird.y, '#00FF00');
+                }
+                
+                // Remove off-screen pipes
+                if (pipe.x < -pipeWidth) {
+                    pipes.splice(i, 1);
+                }
+            }
+        }
+        
+        function updatePowerUps() {
+            Object.keys(powerUps).forEach(key => {
+                if (powerUps[key].active) {
+                    powerUps[key].duration--;
+                    if (powerUps[key].duration <= 0) {
+                        powerUps[key].active = false;
+                    }
+                }
+            });
+        }
+        
+        function updateTimeTravel() {
+            if (gameState !== 'playing') return;
+            
+            eraTimer++;
+            if (eraTimer > eraChangeInterval) {
+                eraTimer = 0;
+                currentEra = (currentEra + 1) % eras.length;
+                changeEra();
+                
+                // Era change bonus
+                score += 5;
+                createParticles(canvas.width / 2, canvas.height / 2, '#FFFFFF');
+            }
+            
+            // Play ambient sounds for current era
+            playEraAmbient(currentEra);
+        }
+        
+        function gameOver() {
+            gameState = 'gameOver';
+            document.getElementById('gameOver').style.display = 'block';
+            
+            // Play game over sound
+            playGameOverSound();
+            
+            // Create explosion particles
+            createParticles(bird.x, bird.y, '#FF0000');
+        }
+        
+        function drawBird() {
+            // Draw trail effect
+            if (bird.trail.length > 0) {
+                ctx.save();
+                for (let i = 0; i < bird.trail.length; i++) {
+                    const trail = bird.trail[i];
+                    ctx.globalAlpha = trail.alpha;
+                    ctx.font = `${trail.size}px Arial`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillStyle = trail.color;
+                    ctx.fillText(trail.char, trail.x, trail.y);
+                }
+                ctx.restore();
+            }
+            
+            // Draw main bird
+            ctx.save();
+            ctx.translate(bird.x + bird.size/2, bird.y + bird.size/2);
+            ctx.rotate(bird.rotation * Math.PI / 180);
+            
+            // Add glow effect
+            ctx.shadowColor = '#FFD700';
+            ctx.shadowBlur = powerUps.magnet.active ? 15 : 0;
+            
+            ctx.font = `${bird.size}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(bird.char, 0, 0);
+            
+            ctx.restore();
+            
+            // Shield effect with animation
+            if (powerUps.shield.active) {
+                ctx.save();
+                ctx.strokeStyle = '#FFD700';
+                ctx.lineWidth = 3;
+                ctx.globalAlpha = 0.8 + 0.2 * Math.sin(frameCount * 0.2);
+                ctx.beginPath();
+                ctx.arc(bird.x + bird.size/2, bird.y + bird.size/2, bird.size/2 + 10 + Math.sin(frameCount * 0.1) * 2, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+        
+        function drawPipes() {
+            pipes.forEach(pipe => {
+                // Add gradient effect to pipes
+                const gradient = ctx.createLinearGradient(pipe.x, 0, pipe.x + pipeWidth, 0);
+                gradient.addColorStop(0, eras[currentEra].pipeColor);
+                gradient.addColorStop(0.5, lightenColor(eras[currentEra].pipeColor, 20));
+                gradient.addColorStop(1, eras[currentEra].pipeColor);
+                
+                ctx.fillStyle = gradient;
+                
+                // Top pipe
+                ctx.fillRect(pipe.x, 0, pipeWidth, pipe.topHeight);
+                
+                // Bottom pipe
+                ctx.fillRect(pipe.x, pipe.bottomY, pipeWidth, canvas.height - pipe.bottomY);
+                
+                // Pipe caps with shadow
+                ctx.fillStyle = '#000';
+                ctx.fillRect(pipe.x - 5, pipe.topHeight - 35, pipeWidth + 10, 35);
+                ctx.fillRect(pipe.x - 5, pipe.bottomY, pipeWidth + 10, 35);
+                
+                // Pipe cap highlights
+                ctx.fillStyle = lightenColor(eras[currentEra].pipeColor, 40);
+                ctx.fillRect(pipe.x - 3, pipe.topHeight - 30, pipeWidth + 6, 25);
+                ctx.fillRect(pipe.x - 3, pipe.bottomY + 5, pipeWidth + 6, 25);
+            });
+        }
+        
+        function lightenColor(color, percent) {
+            const num = parseInt(color.replace("#", ""), 16);
+            const amt = Math.round(2.55 * percent);
+            const R = (num >> 16) + amt;
+            const G = (num >> 8 & 0x00FF) + amt;
+            const B = (num & 0x0000FF) + amt;
+            return "#" + (0x1000000 + (R < 255 ? R < 1 ? 0 : R : 255) * 0x10000 +
+                (G < 255 ? G < 1 ? 0 : G : 255) * 0x100 +
+                (B < 255 ? B < 1 ? 0 : B : 255))
+                .toString(16).slice(1);
+        }
+        
+        function drawBackground() {
+            // Era-specific background elements
+            if (currentEra === 3) { // Hell era
+                // Draw flames
+                ctx.fillStyle = 'rgba(255, 69, 0, 0.5)';
+                for (let i = 0; i < 5; i++) {
+                    const x = (frameCount + i * 50) % canvas.width;
+                    const height = Math.sin(frameCount * 0.1 + i) * 50 + 100;
+                    ctx.fillRect(x, canvas.height - height, 20, height);
+                }
+            }
+        }
+        
+        function render() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw background elements
+            drawBackground();
+            
+            // Draw game objects
+            drawPipes();
+            drawBird();
+            drawParticles();
+            
+            // Update UI
+            updateUI();
+        }
+        
+        function gameLoop() {
+            frameCount++;
+            
+            updateBird();
+            updatePipes();
+            updatePowerUps();
+            updateTimeTravel();
+            updateParticles();
+            
+            render();
+            
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Window resize handler
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+        
+        // Initialize game
+        resetGame();
+        gameLoop();
+    </script>
+</body>
+</html> 
